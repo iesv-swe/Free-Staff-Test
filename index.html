@@ -39,12 +39,11 @@
             margin-bottom: 5px;
         }
         .input-group input,
-        .input-group select { /* --- NEW --- */
+        .input-group select {
             width: 95%;
             padding: 8px 12px;
             border: 1px solid #d1d5da;
             border-radius: 6px;
-            /* --- NEW: Ensure select matches input width --- */
             max-width: 95%;
             box-sizing: border-box;
         }
@@ -61,7 +60,6 @@
         button:hover {
             background-color: #2c974b;
         }
-        /* --- NEW: Button for CSV Export --- */
         button.export-btn {
             background-color: #0366d6;
             margin-left: 10px;
@@ -69,7 +67,23 @@
         button.export-btn:hover {
             background-color: #005cc5;
         }
-
+        .import-btn {
+            background-color: #f6f8fa;
+            color: #24292e;
+            border: 1px solid #d1d5da;
+            padding: 10px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin-left: 10px;
+            font-weight: 600;
+            display: inline-block;
+            margin-top: 10px;
+            font-size: 14px;
+            line-height: 20px;
+        }
+        .import-btn:hover {
+            background-color: #eaecef;
+        }
         .results {
             margin-top: 20px;
         }
@@ -102,7 +116,21 @@
             font-weight: 600;
         }
 
-        /* --- NEW: Styles for Extra Minutes Section --- */
+        /* --- NEW: Styles for Over Limit Teachers --- */
+        .teacher-list li.over-limit {
+            color: #d73a49; /* Error red color */
+            font-weight: 600;
+            background-color: #ffeef0; /* Light red background */
+            border-color: #d73a49;
+        }
+        /* Override for on-call to keep it readable */
+        .teacher-list li.on-call.over-limit {
+            color: #ffffff; /* Keep text white */
+            background-color: #2ea44f; /* Keep bg green */
+            border: 3px solid #d73a49; /* Add a thick warning border */
+            padding: 3px 10px; /* Adjust padding for new border */
+        }
+        
         .extra-minutes-grid {
             display: grid;
             grid-template-columns: 2fr 1fr 1fr auto;
@@ -219,7 +247,7 @@
 
     <div class="container">
         <h2>Extra Worked Minutes</h2>
-        <p>This data is stored in your local browser. Use the Export button to back it up.</p>
+        <p>This data is stored in your local browser. Use the Export/Import buttons to back it up or restore it.</p>
         
         <h3>Add New Entry</h3>
         <div class="extra-minutes-grid">
@@ -250,7 +278,13 @@
         <div id="month-buttons-container" class="month-buttons-container">
             </div>
         <div id="monthly-total-display">Select a month to see the total.</div>
-        <button id="export-csv-button" class="export-btn">Export All to CSV</button>
+        
+        <div>
+            <button id="export-csv-button" class="export-btn">Export All to CSV</button>
+            <input type="file" id="import-csv-input" accept=".csv" style="display: none;">
+            <label for="import-csv-input" class="import-btn">Import from CSV</label>
+        </div>
+
 
         <h3 style="margin-top: 30px;">Detailed Log</h3>
         <div class="details-table-container">
@@ -267,6 +301,8 @@
             </table>
         </div>
     </div>
+
+
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             let lessons = [];
@@ -289,7 +325,7 @@
             const timeFromInput = document.getElementById('time-from-input');
             const timeToInput = document.getElementById('time-to-input');
 
-            // --- NEW: Get DOM Elements (Extra Minutes) ---
+            // --- Get DOM Elements (Extra Minutes) ---
             const extraTeacherSelect = document.getElementById('extra-teacher');
             const extraMonthInput = document.getElementById('extra-month');
             const extraMinutesInput = document.getElementById('extra-minutes');
@@ -300,12 +336,13 @@
             const currentYearDisplay = document.getElementById('current-year-display');
             const monthButtonsContainer = document.getElementById('month-buttons-container');
             const monthlyTotalDisplay = document.getElementById('monthly-total-display');
-            const exportCsvButton = document.getElementById('export-csv-button');
             const detailsTableBody = document.getElementById('details-table-body');
+            const exportCsvButton = document.getElementById('export-csv-button');
+            const importCsvInput = document.getElementById('import-csv-input');
             
-            // --- NEW: Data storage for extra minutes ---
+            // --- Data storage for extra minutes ---
             const STORAGE_KEY = 'teacherExtraMinutes';
-            let extraMinutesData = []; // This will hold our array of objects: { teacher, monthKey, minutes }
+            let extraMinutesData = [];
             let displayedYear = new Date().getFullYear();
 
             // --- Helper Functions (Original) ---
@@ -437,40 +474,78 @@
                 return { available: availableTeacherNames.sort(), onCall: onCallTeachers };
             }
 
-            // --- Display Function (Original) ---
-            function displayResults(availableTeachers, onCallTeachers, listElement, statusElement) {
+            // --- Display Function (MODIFIED) ---
+            /* --- MODIFIED: Added 'dateForMinutes' parameter --- */
+            function displayResults(availableTeachers, onCallTeachers, listElement, statusElement, dateForMinutes) {
                 listElement.innerHTML = ''; // Clear previous results
                 const filteredTeachers = availableTeachers.filter(teacher => !EXCLUDE_TEACHERS_SET.has(teacher));
                 
+                /* --- NEW: Get monthKey from the date of the check --- */
+                const year = dateForMinutes.getFullYear();
+                const month = (dateForMinutes.getMonth() + 1).toString().padStart(2, '0');
+                const monthKey = `${year}-${month}`;
+
                 if (filteredTeachers.length === 0) {
                     statusElement.textContent = 'No teachers are available (working and not in a lesson) for this time.';
                     statusElement.classList.remove('error');
                 } else {
+                    /* --- NEW: Add context to the status message --- */
+                    if (statusElement.id === 'status-now') {
+                         statusElement.textContent = `Schedule loaded. Checking for: ${new Date().toLocaleString()} (Showing extra minutes for ${monthKey})`;
+                    } else {
+                        // Keep the original text for custom search and append the monthKey
+                        statusElement.textContent += ` (Showing extra minutes for ${monthKey})`;
+                    }
+
                     filteredTeachers.forEach(teacher => {
                         const li = document.createElement('li');
-                        li.textContent = teacher;
+                        
+                        /* --- NEW: Get minutes and update text --- */
+                        const minutes = getMinutesForTeacher(teacher, monthKey);
+                        let displayText = teacher;
+                        if (minutes > 0) {
+                            displayText += ` (${minutes} min)`;
+                        }
+                        li.textContent = displayText;
+                        /* ---------------------------------------- */
+
                         if (onCallTeachers.has(teacher)) {
                             li.classList.add('on-call');
                         }
+
+                        /* --- NEW: Add over-limit class --- */
+                        if (minutes > 180) {
+                            li.classList.add('over-limit');
+                        }
+                        /* ---------------------------------- */
+
                         listElement.appendChild(li);
                     });
                 }
             }
 
-            // --- NEW: Functions for Extra Minutes ---
+            /* --- NEW: Helper function to get extra minutes for a teacher/month --- */
+            function getMinutesForTeacher(teacher, monthKey) {
+                let total = 0;
+                extraMinutesData
+                    .filter(d => d.teacher === teacher && d.monthKey === monthKey)
+                    .forEach(d => {
+                        total += d.minutes;
+                    });
+                return total;
+            }
 
-            // Load data from Local Storage
+            // --- Functions for Extra Minutes ---
+
             function loadExtraMinutes() {
                 const data = localStorage.getItem(STORAGE_KEY);
                 extraMinutesData = data ? JSON.parse(data) : [];
             }
 
-            // Save data to Local Storage
             function saveExtraMinutes() {
                 localStorage.setItem(STORAGE_KEY, JSON.stringify(extraMinutesData));
             }
             
-            // Re-draws the entire Extra Minutes UI
             function updateExtraMinutesUI() {
                 // 1. Update Year Display
                 currentYearDisplay.textContent = displayedYear;
@@ -487,7 +562,6 @@
                     btn.addEventListener('click', () => {
                         showTotalForMonth(displayedYear, index);
                         
-                        // Set active class
                         document.querySelectorAll('.month-btn.active').forEach(b => b.classList.remove('active'));
                         btn.classList.add('active');
                     });
@@ -496,7 +570,6 @@
 
                 // 3. Render Detailed Log Table
                 detailsTableBody.innerHTML = '';
-                // Sort data by monthKey, then teacher
                 const sortedData = [...extraMinutesData].sort((a, b) => {
                     if (a.monthKey < b.monthKey) return -1;
                     if (a.monthKey > b.monthKey) return 1;
@@ -519,17 +592,20 @@
                     });
                 }
 
-                // 4. Update the total display (e.g., for the current month)
-                const currentMonthIndex = new Date().getMonth();
-                showTotalForMonth(displayedYear, currentMonthIndex);
-                // Set the current month as active
-                const currentMonthBtn = monthButtonsContainer.querySelector(`[data-month-index="${currentMonthIndex}"]`);
-                if (currentMonthBtn) {
-                    currentMonthBtn.classList.add('active');
+                // 4. Update the total display
+                const activeMonthBtn = monthButtonsContainer.querySelector('.month-btn.active');
+                let activeMonthIndex = new Date().getMonth();
+                if (activeMonthBtn) {
+                    activeMonthIndex = parseInt(activeMonthBtn.dataset.monthIndex, 10);
+                } else {
+                    const currentMonthBtn = monthButtonsContainer.querySelector(`[data-month-index="${activeMonthIndex}"]`);
+                    if (currentMonthBtn) {
+                        currentMonthBtn.classList.add('active');
+                    }
                 }
+                showTotalForMonth(displayedYear, activeMonthIndex);
             }
 
-            // Calculates and shows the total for a specific month/year
             function showTotalForMonth(year, monthIndex) { // monthIndex is 0-11
                 const monthKey = `${year}-${(monthIndex + 1).toString().padStart(2, '0')}`;
                 const monthName = new Date(year, monthIndex, 1).toLocaleString('default', { month: 'long' });
@@ -544,7 +620,6 @@
                 monthlyTotalDisplay.textContent = `Total for ${monthName} ${year}: ${total} minutes`;
             }
 
-            // Populates the teacher dropdown list
             function populateTeacherDropdown() {
                 const allTeachers = new Set();
                 lessons.forEach(lesson => {
@@ -555,7 +630,7 @@
                     .filter(t => !EXCLUDE_TEACHERS_SET.has(t))
                     .sort();
                 
-                extraTeacherSelect.innerHTML = '<option value="">-- Select a teacher --</option>'; // Clear "Loading..."
+                extraTeacherSelect.innerHTML = '<option value="">-- Select a teacher --</option>';
                 sortedTeachers.forEach(t => {
                     const option = document.createElement('option');
                     option.value = t;
@@ -582,30 +657,32 @@
                     const requiredCols = ['subject', 'teacher', 'day', 'starttime', 'length', 'realweeks'];
                     for (const col of requiredCols) {
                         if (columnMap[col] === undefined) {
-                            throw new Error(`Missing required column in Lessons.txt: ${col}`);
+                            throw newError(`Missing required column in Lessons.txt: ${col}`);
                         }
                     }
 
                     lessons = lines.slice(1).map(line => line.split('\t'));
                     
-                    statusNow.textContent = `Schedule loaded. Checking for: ${new Date().toLocaleString()}`;
+                    // --- Initialize Extra Minutes section FIRST ---
+                    // We need this data loaded before we call displayResults
+                    loadExtraMinutes();
+                    populateTeacherDropdown();
                     
                     const now = new Date();
+                    extraMonthInput.value = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}`;
+                    updateExtraMinutesUI();
+                    // ------------------------------------------
+                    
+                    statusNow.textContent = `Schedule loaded. Checking for: ${new Date().toLocaleString()}`;
+                    
                     const { available, onCall } = getAvailabilityAtTime(now);
-                    displayResults(available, onCall, teachersNowList, statusNow);
+                    /* --- MODIFIED: Pass 'now' to displayResults --- */
+                    displayResults(available, onCall, teachersNowList, statusNow, now);
                     
                     dateInput.valueAsDate = now;
                     timeFromInput.value = now.toTimeString().substring(0, 5);
                     const later = new Date(now.getTime() + 60 * 60 * 1000); 
                     timeToInput.value = later.toTimeString().substring(0, 5);
-
-                    // --- NEW: Initialize Extra Minutes section ---
-                    populateTeacherDropdown();
-                    // Set default month to current month
-                    extraMonthInput.value = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}`;
-                    loadExtraMinutes();
-                    updateExtraMinutesUI();
-                    // ------------------------------------------
 
                 } catch (error) {
                     statusNow.textContent = `Error: ${error.message}`;
@@ -647,12 +724,13 @@
                 
                 statusCustom.textContent = `Showing teachers free from ${timeFromVal} to ${timeToVal} on ${checkDate.toLocaleDateString()}:`;
                 statusCustom.style.display = 'block';
-                displayResults(available, onCall, teachersCustomList, statusCustom);
+                
+                /* --- MODIFIED: Pass 'checkDate' to displayResults --- */
+                displayResults(available, onCall, teachersCustomList, statusCustom, checkDate);
             });
 
-            // --- NEW: Event Listeners (Extra Minutes) ---
+            // --- Event Listeners (Extra Minutes) ---
 
-            // "Add" button
             addMinutesButton.addEventListener('click', () => {
                 const teacher = extraTeacherSelect.value;
                 const monthKey = extraMonthInput.value; // "YYYY-MM"
@@ -669,14 +747,11 @@
                 statusExtra.classList.remove('error');
                 statusExtra.textContent = `Adding ${minutes} minutes for ${teacher} in ${monthKey}...`;
 
-                // Check if an entry already exists
                 const existingEntry = extraMinutesData.find(d => d.teacher === teacher && d.monthKey === monthKey);
                 
                 if (existingEntry) {
-                    // Update existing entry
                     existingEntry.minutes += minutes;
                 } else {
-                    // Add new entry
                     extraMinutesData.push({ teacher, monthKey, minutes });
                 }
 
@@ -684,17 +759,13 @@
                 updateExtraMinutesUI();
                 
                 statusExtra.textContent = `Successfully added ${minutes} minutes for ${teacher} in ${monthKey}.`;
-                // Clear inputs
                 extraMinutesInput.value = '';
-                // extraTeacherSelect.value = ''; // Optional: uncomment to reset teacher
                 
-                // Hide status message after a bit
                 setTimeout(() => {
                     statusExtra.style.display = 'none';
                 }, 3000);
             });
             
-            // Year toggle buttons
             prevYearBtn.addEventListener('click', () => {
                 displayedYear--;
                 updateExtraMinutesUI();
@@ -705,7 +776,6 @@
                 updateExtraMinutesUI();
             });
 
-            // Export to CSV button
             exportCsvButton.addEventListener('click', () => {
                 if (extraMinutesData.length === 0) {
                     alert('No data to export.');
@@ -723,10 +793,84 @@
                 const link = document.createElement("a");
                 link.setAttribute("href", encodedUri);
                 link.setAttribute("download", "teacher_extra_minutes.csv");
-                document.body.appendChild(link); // Required for Firefox
+                document.body.appendChild(link);
 
                 link.click();
                 document.body.removeChild(link);
+            });
+
+            importCsvInput.addEventListener('change', (event) => {
+                const file = event.target.files[0];
+                if (!file) return;
+
+                if (file.type !== 'text/csv' && !file.name.endsWith('.csv')) {
+                    alert('Please select a valid .csv file.');
+                    return;
+                }
+
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const text = e.target.result;
+                    try {
+                        const lines = text.split(/\r?\n/);
+                        if (lines.length < 1) throw new Error('File is empty.');
+
+                        const header = lines[0].trim().toLowerCase();
+                        if (header !== 'teacher,month,minutes') {
+                            throw new Error('Invalid CSV header. Expected "Teacher,Month,Minutes".');
+                        }
+
+                        const importedData = [];
+                        for (let i = 1; i < lines.length; i++) {
+                            const line = lines[i].trim();
+                            if (line === '') continue;
+
+                            const parts = line.split(',');
+                            if (parts.length !== 3) {
+                                console.warn(`Skipping malformed line: ${line}`);
+                                continue;
+                            }
+
+                            const [teacher, monthKey, minutesStr] = parts;
+                            const minutes = parseInt(minutesStr, 10);
+
+                            if (!teacher || !monthKey.match(/^\d{4}-\d{2}$/) || isNaN(minutes) || minutes <= 0) {
+                                console.warn(`Skipping invalid data line: ${line}`);
+                                continue;
+                            }
+                            
+                            importedData.push({ teacher, monthKey, minutes });
+                        }
+                        
+                        if (!confirm(`This will REPLACE all ${extraMinutesData.length} current entries with ${importedData.length} entries from the file. Are you sure?`)) {
+                            event.target.value = null; 
+                            return;
+                        }
+
+                        extraMinutesData = importedData;
+                        saveExtraMinutes();
+                        updateExtraMinutesUI();
+                        
+                        statusExtra.textContent = `Successfully imported ${importedData.length} entries.`;
+                        statusExtra.classList.remove('error');
+                        statusExtra.style.display = 'block';
+                        setTimeout(() => { statusExtra.style.display = 'none'; }, 4000);
+
+                    } catch (error) {
+                        statusExtra.textContent = `Import Error: ${error.message}`;
+                        statusExtra.classList.add('error');
+                        statusExtra.style.display = 'block';
+                    } finally {
+                        event.target.value = null;
+                    }
+                };
+                
+                reader.onerror = () => {
+                    alert('Error reading file.');
+                    event.target.value = null;
+                };
+
+                reader.readAsText(file);
             });
 
             // Start the application
