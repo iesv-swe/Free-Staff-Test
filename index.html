@@ -116,31 +116,29 @@
             font-weight: 600;
         }
         
-        /* --- NEW: Styles for Over Limit Week (Orange) --- */
         .teacher-list li.over-limit-week {
-            color: #a05c00; /* Dark orange */
+            color: #a05c00;
             font-weight: 600;
-            background-color: #fff7e6; /* Light orange */
+            background-color: #fff7e6;
             border-color: #ffc657;
         }
         .teacher-list li.on-call.over-limit-week {
             color: #ffffff;
-            background-color: #2ea44f; /* Keep bg green */
-            border: 3px solid #ffc657; /* Orange warning border */
+            background-color: #2ea44f;
+            border: 3px solid #ffc657;
             padding: 3px 10px;
         }
         
-        /* --- MODIFIED: Renamed to over-limit-month (Red) --- */
         .teacher-list li.over-limit-month {
-            color: #d73a49; /* Red */
+            color: #d73a49;
             font-weight: 600;
-            background-color: #ffeef0; /* Light red */
+            background-color: #ffeef0;
             border-color: #d73a49;
         }
         .teacher-list li.on-call.over-limit-month {
             color: #ffffff;
-            background-color: #2ea44f; /* Keep bg green */
-            border: 3px solid #d73a49; /* Red warning border */
+            background-color: #2ea44f;
+            border: 3px solid #d73a49;
             padding: 3px 10px;
         }
 
@@ -230,7 +228,7 @@
         <h2>Available Right Now</h2>
         <div id="status-now" class="status">Loading schedule...</div>
         <div id="results-now" class="results">
-            <ul id="teachers-now" class="teacher-list"></ul>
+            <ul id="teachers-now" class."teacher-list"></ul>
         </div>
     </div>
 
@@ -360,7 +358,7 @@
 
             // --- Helper Functions (Original) ---
 
-            // This function already calculates the Swedish week number
+            // This function is for checking Lessons.txt 'realweeks' column. It is correct.
             function getWeekNumber(d) {
                 d = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
                 d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
@@ -368,6 +366,28 @@
                 var weekNo = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
                 return weekNo;
             }
+
+            /* --- FIX: New function to get the correct ISO week AND year --- */
+            // This is used for creating the 'weekKey' (e.g., "2025-W01")
+            function getIsoWeekAndYear(d_in) {
+                // Create a new date object so we don't mutate the original
+                const d = new Date(Date.UTC(d_in.getFullYear(), d_in.getMonth(), d_in.getDate()));
+                
+                // Move d to the Thursday of its week
+                d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+                
+                // Get the ISO year (which is the year of that Thursday)
+                const year = d.getUTCFullYear();
+                
+                // Calculate start of that year
+                var yearStart = new Date(Date.UTC(year, 0, 1));
+                
+                // Calculate week number
+                var weekNo = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+                
+                return { week: weekNo, year: year };
+            }
+            /* --- END FIX --- */
 
             function getDateOfISOWeek(y, w) {
                 var simple = new Date(Date.UTC(y, 0, 1 + (w - 1) * 7));
@@ -433,7 +453,8 @@
                 const onCallTeachers = new Set();
                 const busyTeachers = new Set();
                 
-                const checkWeek = getWeekNumber(dateTime);
+                // This call is correct, it just needs the number
+                const checkWeek = getWeekNumber(dateTime); 
                 const checkDay = dayMap[dateTime.getDay()];
                 const checkTimeInMinutes = (dateTime.getHours() * 60) + dateTime.getMinutes();
                 
@@ -476,7 +497,8 @@
                 const onCallTeachers = new Set();
                 const busyTeachers = new Set();
 
-                const checkWeek = getWeekNumber(checkDate);
+                // This call is also correct, it just needs the number
+                const checkWeek = getWeekNumber(checkDate); 
                 const checkDay = dayMap[checkDate.getDay()];
 
                 lessons.forEach(lesson => {
@@ -525,18 +547,15 @@
                 const month = (dateForMinutes.getMonth() + 1).toString().padStart(2, '0');
                 const monthKey = `${year}-${month}`;
 
-                /* --- NEW: Get weekKey from the date --- */
-                const week = getWeekNumber(dateForMinutes);
-                // Note: getWeekNumber might return a week for the *previous* year (e.g., Jan 1st)
-                // We'll use the date's year, assuming the week number aligns.
-                // For "2025-W43", we need to be careful. Let's get the year from the date itself.
-                const weekKey = `${dateForMinutes.getFullYear()}-W${week.toString().padStart(2, '0')}`;
+                /* --- FIX: Use new function to get correct weekKey --- */
+                const { week, year: weekYear } = getIsoWeekAndYear(dateForMinutes);
+                const weekKey = `${weekYear}-W${week.toString().padStart(2, '0')}`;
+                /* --- END FIX --- */
                 
                 if (filteredTeachers.length === 0) {
                     statusElement.textContent = 'No teachers are available (working and not in a lesson) for this time.';
                     statusElement.classList.remove('error');
                 } else {
-                    /* --- MODIFIED: Updated status message --- */
                     const statusText = `(Showing monthly totals. Week: ${weekKey} / Month: ${monthKey})`;
                     if (statusElement.id === 'status-now') {
                          statusElement.textContent = `Available as of ${new Date().toLocaleTimeString()}. ${statusText}`;
@@ -547,29 +566,26 @@
                     filteredTeachers.forEach(teacher => {
                         const li = document.createElement('li');
                         
-                        /* --- MODIFIED: Get both weekly and monthly totals --- */
                         const monthMinutes = getMinutesForTeacherByMonth(teacher, monthKey);
                         const weekMinutes = getMinutesForTeacherByWeek(teacher, weekKey);
 
-                        // Display the MONTHLY minutes (as per previous request)
+                        // Display the MONTHLY minutes
                         let displayText = teacher;
                         if (monthMinutes > 0) {
                             displayText += ` (${monthMinutes} min)`;
                         }
                         li.textContent = displayText;
-                        /* ---------------------------------------------------- */
 
                         if (onCallTeachers.has(teacher)) {
                             li.classList.add('on-call');
                         }
 
-                        /* --- MODIFIED: Tiered color limits --- */
+                        // Tiered color limits
                         if (monthMinutes > 180) {
                             li.classList.add('over-limit-month'); // Red
                         } else if (weekMinutes > 90) {
                             li.classList.add('over-limit-week'); // Orange
                         }
-                        /* -------------------------------------- */
 
                         listElement.appendChild(li);
                     });
@@ -586,7 +602,6 @@
                 return total;
             }
 
-            /* --- NEW: Helper function to get extra minutes for a teacher/week --- */
             function getMinutesForTeacherByWeek(teacher, weekKey) {
                 let total = 0;
                 extraMinutesData
@@ -726,12 +741,13 @@
                     
                     const now = new Date();
                     
-                    const currentWeekNum = getWeekNumber(now);
-                    extraWeekInput.value = `${now.getFullYear()}-W${currentWeekNum.toString().padStart(2, '0')}`;
+                    /* --- FIX: Use new function to set default week input --- */
+                    const { week: currentWeekNum, year: currentWeekYear } = getIsoWeekAndYear(now);
+                    extraWeekInput.value = `${currentWeekYear}-W${currentWeekNum.toString().padStart(2, '0')}`;
+                    /* --- END FIX --- */
 
                     updateExtraMinutesUI();
                     
-                    /* --- MODIFIED: Simplified status message --- */
                     statusNow.textContent = `Schedule loaded. Checking...`;
                     
                     const { available, onCall } = getAvailabilityAtTime(now);
@@ -944,13 +960,6 @@
                 reader.readAsText(file);
             });
 
-This code is based on the current time in Sweden (Thursday, October 23, 2025, 08:28:43 AM CEST), which falls in **Week 43**.
-
-When you check "Available Right Now":
-* It will calculate `weekKey = "2025-W43"` and `monthKey = "2025-10"`.
-* If a teacher has `> 90` minutes logged for `2025-W43`, they will be **Orange**.
-* If a teacher has `> 180` minutes *total* for `2025-10` (from any week in October), they will be **Red**.
-* The text next to their name will show their *total monthly minutes* for `2025-10`.
             // Start the application
             loadData();
         });
