@@ -115,18 +115,35 @@
             border-color: #2c974b;
             font-weight: 600;
         }
-        .teacher-list li.over-limit {
-            color: #d73a49;
+        
+        /* --- NEW: Styles for Over Limit Week (Orange) --- */
+        .teacher-list li.over-limit-week {
+            color: #a05c00; /* Dark orange */
             font-weight: 600;
-            background-color: #ffeef0;
-            border-color: #d73a49;
+            background-color: #fff7e6; /* Light orange */
+            border-color: #ffc657;
         }
-        .teacher-list li.on-call.over-limit {
+        .teacher-list li.on-call.over-limit-week {
             color: #ffffff;
-            background-color: #2ea44f;
-            border: 3px solid #d73a49;
+            background-color: #2ea44f; /* Keep bg green */
+            border: 3px solid #ffc657; /* Orange warning border */
             padding: 3px 10px;
         }
+        
+        /* --- MODIFIED: Renamed to over-limit-month (Red) --- */
+        .teacher-list li.over-limit-month {
+            color: #d73a49; /* Red */
+            font-weight: 600;
+            background-color: #ffeef0; /* Light red */
+            border-color: #d73a49;
+        }
+        .teacher-list li.on-call.over-limit-month {
+            color: #ffffff;
+            background-color: #2ea44f; /* Keep bg green */
+            border: 3px solid #d73a49; /* Red warning border */
+            padding: 3px 10px;
+        }
+
         .extra-minutes-grid {
             display: grid;
             grid-template-columns: 2fr 1fr 1fr auto;
@@ -323,7 +340,6 @@
 
             // --- Get DOM Elements (Extra Minutes) ---
             const extraTeacherSelect = document.getElementById('extra-teacher');
-            // --- MODIFIED: Renamed from 'extra-month' to 'extra-week' ---
             const extraWeekInput = document.getElementById('extra-week');
             const extraMinutesInput = document.getElementById('extra-minutes');
             const addMinutesButton = document.getElementById('add-minutes-button');
@@ -339,12 +355,12 @@
             
             // --- Data storage for extra minutes ---
             const STORAGE_KEY = 'teacherExtraMinutes';
-            // --- MODIFIED: Data structure now holds weekKey and monthKey ---
-            let extraMinutesData = []; // This will hold: { teacher, weekKey, monthKey, minutes }
+            let extraMinutesData = []; // { teacher, weekKey, monthKey, minutes }
             let displayedYear = new Date().getFullYear();
 
             // --- Helper Functions (Original) ---
 
+            // This function already calculates the Swedish week number
             function getWeekNumber(d) {
                 d = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
                 d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
@@ -353,8 +369,6 @@
                 return weekNo;
             }
 
-            /* --- NEW: Helper to get the start date of an ISO week --- */
-            // (e.g., "2025-W43" -> Date object for 2025-10-20)
             function getDateOfISOWeek(y, w) {
                 var simple = new Date(Date.UTC(y, 0, 1 + (w - 1) * 7));
                 var dow = simple.getUTCDay();
@@ -366,14 +380,12 @@
                 return ISOweekStart;
             }
 
-            /* --- NEW: Helper to get the month key from a week key --- */
-            // Uses the week's *start date* to determine the month
             function getMonthKeyFromWeekKey(weekKey) { // "2025-W43"
                 try {
                     const [year, week] = weekKey.split('-W').map(Number);
                     if (isNaN(year) || isNaN(week)) return null;
                     
-                    const startDateOfWeek = getDateOfISOWeek(year, week); // This is a Date object
+                    const startDateOfWeek = getDateOfISOWeek(year, week);
                     const month = (startDateOfWeek.getUTCMonth() + 1).toString().padStart(2, '0');
                     const yearStr = startDateOfWeek.getUTCFullYear();
                     return `${yearStr}-${month}`;
@@ -508,55 +520,83 @@
                 listElement.innerHTML = '';
                 const filteredTeachers = availableTeachers.filter(teacher => !EXCLUDE_TEACHERS_SET.has(teacher));
                 
-                // Get monthKey from the date of the check
+                // Get monthKey from the date
                 const year = dateForMinutes.getFullYear();
                 const month = (dateForMinutes.getMonth() + 1).toString().padStart(2, '0');
                 const monthKey = `${year}-${month}`;
 
+                /* --- NEW: Get weekKey from the date --- */
+                const week = getWeekNumber(dateForMinutes);
+                // Note: getWeekNumber might return a week for the *previous* year (e.g., Jan 1st)
+                // We'll use the date's year, assuming the week number aligns.
+                // For "2025-W43", we need to be careful. Let's get the year from the date itself.
+                const weekKey = `${dateForMinutes.getFullYear()}-W${week.toString().padStart(2, '0')}`;
+                
                 if (filteredTeachers.length === 0) {
                     statusElement.textContent = 'No teachers are available (working and not in a lesson) for this time.';
                     statusElement.classList.remove('error');
                 } else {
+                    /* --- MODIFIED: Updated status message --- */
+                    const statusText = `(Showing monthly totals. Week: ${weekKey} / Month: ${monthKey})`;
                     if (statusElement.id === 'status-now') {
-                         statusElement.textContent = `Schedule loaded. Checking for: ${new Date().toLocaleString()} (Showing extra minutes for ${monthKey})`;
+                         statusElement.textContent = `Available as of ${new Date().toLocaleTimeString()}. ${statusText}`;
                     } else {
-                        statusElement.textContent += ` (Showing extra minutes for ${monthKey})`;
+                        statusElement.textContent += ` ${statusText}`;
                     }
 
                     filteredTeachers.forEach(teacher => {
                         const li = document.createElement('li');
                         
-                        /* --- MODIFIED: Now uses getMinutesForTeacherByMonth --- */
-                        const minutes = getMinutesForTeacherByMonth(teacher, monthKey);
+                        /* --- MODIFIED: Get both weekly and monthly totals --- */
+                        const monthMinutes = getMinutesForTeacherByMonth(teacher, monthKey);
+                        const weekMinutes = getMinutesForTeacherByWeek(teacher, weekKey);
+
+                        // Display the MONTHLY minutes (as per previous request)
                         let displayText = teacher;
-                        if (minutes > 0) {
-                            displayText += ` (${minutes} min)`;
+                        if (monthMinutes > 0) {
+                            displayText += ` (${monthMinutes} min)`;
                         }
                         li.textContent = displayText;
+                        /* ---------------------------------------------------- */
 
                         if (onCallTeachers.has(teacher)) {
                             li.classList.add('on-call');
                         }
-                        if (minutes > 180) {
-                            li.classList.add('over-limit');
+
+                        /* --- MODIFIED: Tiered color limits --- */
+                        if (monthMinutes > 180) {
+                            li.classList.add('over-limit-month'); // Red
+                        } else if (weekMinutes > 90) {
+                            li.classList.add('over-limit-week'); // Orange
                         }
+                        /* -------------------------------------- */
 
                         listElement.appendChild(li);
                     });
                 }
             }
 
-            /* --- MODIFIED: Renamed to be specific --- */
             function getMinutesForTeacherByMonth(teacher, monthKey) {
                 let total = 0;
                 extraMinutesData
-                    // We filter by 'monthKey' which is stored on each weekly entry
                     .filter(d => d.teacher === teacher && d.monthKey === monthKey)
                     .forEach(d => {
                         total += d.minutes;
                     });
                 return total;
             }
+
+            /* --- NEW: Helper function to get extra minutes for a teacher/week --- */
+            function getMinutesForTeacherByWeek(teacher, weekKey) {
+                let total = 0;
+                extraMinutesData
+                    .filter(d => d.teacher === teacher && d.weekKey === weekKey)
+                    .forEach(d => {
+                        total += d.minutes;
+                    });
+                return total;
+            }
+
 
             // --- Functions for Extra Minutes ---
 
@@ -569,12 +609,9 @@
                 localStorage.setItem(STORAGE_KEY, JSON.stringify(extraMinutesData));
             }
             
-            // --- MODIFIED: To show 'weekKey' in the table ---
             function updateExtraMinutesUI() {
-                // 1. Update Year Display
                 currentYearDisplay.textContent = displayedYear;
 
-                // 2. Render Month Buttons
                 monthButtonsContainer.innerHTML = '';
                 const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
                 
@@ -582,19 +619,16 @@
                     const btn = document.createElement('button');
                     btn.className = 'month-btn';
                     btn.textContent = name;
-                    btn.dataset.monthIndex = index; // 0-11
+                    btn.dataset.monthIndex = index;
                     btn.addEventListener('click', () => {
                         showTotalForMonth(displayedYear, index);
-                        
                         document.querySelectorAll('.month-btn.active').forEach(b => b.classList.remove('active'));
                         btn.classList.add('active');
                     });
                     monthButtonsContainer.appendChild(btn);
                 });
 
-                // 3. Render Detailed Log Table
                 detailsTableBody.innerHTML = '';
-                // Sort by weekKey, then teacher
                 const sortedData = [...extraMinutesData].sort((a, b) => {
                     if (a.weekKey < b.weekKey) return -1;
                     if (a.weekKey > b.weekKey) return 1;
@@ -610,13 +644,13 @@
                         const tr = document.createElement('tr');
                         tr.innerHTML = `
                             <td>${entry.teacher}</td>
-                            <td>${entry.weekKey}</td> <td>${entry.minutes}</td>
+                            <td>${entry.weekKey}</td>
+                            <td>${entry.minutes}</td>
                         `;
                         detailsTableBody.appendChild(tr);
                     });
                 }
 
-                // 4. Update the total display
                 const activeMonthBtn = monthButtonsContainer.querySelector('.month-btn.active');
                 let activeMonthIndex = new Date().getMonth();
                 if (activeMonthBtn) {
@@ -630,14 +664,13 @@
                 showTotalForMonth(displayedYear, activeMonthIndex);
             }
 
-            // --- MODIFIED: This still works perfectly by filtering on 'monthKey' ---
-            function showTotalForMonth(year, monthIndex) { // monthIndex is 0-11
+            function showTotalForMonth(year, monthIndex) {
                 const monthKey = `${year}-${(monthIndex + 1).toString().padStart(2, '0')}`;
                 const monthName = new Date(year, monthIndex, 1).toLocaleString('default', { month: 'long' });
 
                 let total = 0;
                 extraMinutesData
-                    .filter(d => d.monthKey === monthKey) // Filter by the pre-calculated monthKey
+                    .filter(d => d.monthKey === monthKey)
                     .forEach(d => {
                         total += d.minutes;
                     });
@@ -693,14 +726,13 @@
                     
                     const now = new Date();
                     
-                    /* --- MODIFIED: Set default week input to current week --- */
                     const currentWeekNum = getWeekNumber(now);
                     extraWeekInput.value = `${now.getFullYear()}-W${currentWeekNum.toString().padStart(2, '0')}`;
-                    /* -------------------------------------------------------- */
 
                     updateExtraMinutesUI();
                     
-                    statusNow.textContent = `Schedule loaded. Checking for: ${new Date().toLocaleString()}`;
+                    /* --- MODIFIED: Simplified status message --- */
+                    statusNow.textContent = `Schedule loaded. Checking...`;
                     
                     const { available, onCall } = getAvailabilityAtTime(now);
                     displayResults(available, onCall, teachersNowList, statusNow, now);
@@ -756,10 +788,9 @@
 
             // --- Event Listeners (Extra Minutes) ---
 
-            // --- MODIFIED: "Add" button logic for weekly entries ---
             addMinutesButton.addEventListener('click', () => {
                 const teacher = extraTeacherSelect.value;
-                const weekKey = extraWeekInput.value; // "2025-W43"
+                const weekKey = extraWeekInput.value;
                 const minutes = parseInt(extraMinutesInput.value, 10);
 
                 statusExtra.style.display = 'block';
@@ -770,7 +801,6 @@
                     return;
                 }
 
-                // Calculate the monthKey from the weekKey
                 const monthKey = getMonthKeyFromWeekKey(weekKey);
                 if (!monthKey) {
                     statusExtra.textContent = 'Invalid week format. Please select a valid week.';
@@ -781,14 +811,12 @@
                 statusExtra.classList.remove('error');
                 statusExtra.textContent = `Adding ${minutes} minutes for ${teacher} in ${weekKey}...`;
 
-                // Find entry by teacher AND weekKey
                 const existingEntry = extraMinutesData.find(d => d.teacher === teacher && d.weekKey === weekKey);
                 
                 if (existingEntry) {
                     existingEntry.minutes += minutes;
-                    existingEntry.monthKey = monthKey; // Ensure monthKey is up-to-date (shouldn't change, but good practice)
+                    existingEntry.monthKey = monthKey;
                 } else {
-                    // Add new entry with weekKey and monthKey
                     extraMinutesData.push({ teacher, weekKey, monthKey, minutes });
                 }
 
@@ -813,7 +841,6 @@
                 updateExtraMinutesUI();
             });
 
-            // --- MODIFIED: Export CSV with 'Week' column ---
             exportCsvButton.addEventListener('click', () => {
                 if (extraMinutesData.length === 0) {
                     alert('No data to export.');
@@ -821,10 +848,9 @@
                 }
 
                 let csvContent = "data:text/csv;charset=utf-8,";
-                csvContent += "Teacher,Week,Minutes\r\n"; // CSV Header
+                csvContent += "Teacher,Week,Minutes\r\n";
 
                 extraMinutesData.forEach(entry => {
-                    // We only need to export the weekKey, not the calculated monthKey
                     csvContent += `${entry.teacher},${entry.weekKey},${entry.minutes}\r\n`;
                 });
 
@@ -838,7 +864,6 @@
                 document.body.removeChild(link);
             });
 
-            // --- MODIFIED: Import CSV with 'Week' column ---
             importCsvInput.addEventListener('change', (event) => {
                 const file = event.target.files[0];
                 if (!file) return;
@@ -874,13 +899,11 @@
                             const [teacher, weekKey, minutesStr] = parts;
                             const minutes = parseInt(minutesStr, 10);
 
-                            // Validate the weekKey format (e.g., "2025-W43")
                             if (!teacher || !weekKey.match(/^\d{4}-W\d{2}$/) || isNaN(minutes) || minutes <= 0) {
                                 console.warn(`Skipping invalid data line: ${line}`);
                                 continue;
                             }
                             
-                            // Re-calculate the monthKey upon import
                             const monthKey = getMonthKeyFromWeekKey(weekKey);
                             if (!monthKey) {
                                 console.warn(`Skipping line with invalid weekKey: ${line}`);
@@ -921,6 +944,13 @@
                 reader.readAsText(file);
             });
 
+This code is based on the current time in Sweden (Thursday, October 23, 2025, 08:28:43 AM CEST), which falls in **Week 43**.
+
+When you check "Available Right Now":
+* It will calculate `weekKey = "2025-W43"` and `monthKey = "2025-10"`.
+* If a teacher has `> 90` minutes logged for `2025-W43`, they will be **Orange**.
+* If a teacher has `> 180` minutes *total* for `2025-10` (from any week in October), they will be **Red**.
+* The text next to their name will show their *total monthly minutes* for `2025-10`.
             // Start the application
             loadData();
         });
