@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Now & Next Display</title>
+    <style>
+        :root {
+            --color-bg: #f4f7f6;
+            --color-header-bg: #ffffff;
+            --color-border: #e0e0e0;
+            --color-text-primary: #2c3e50;
+            --color-text-secondary: #5a7a9b;
+            --color-text-header: #34495e;
+            --color-now: #27ae60;
+            --color-next: #2980b9;
+            --color-break: #7f8c8d;
+            --font-main: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+        
+        body {
+            font-family: var(--font-main);
+            background-color: var(--color-bg);
+            color: var(--color-text-primary);
+            margin: 0;
+            padding: 16px; /* CHANGED: Was 24px */
+        }
+        
+        h1 {
+            color: var(--color-text-header);
+            text-align: center;
+            font-size: 2.0em; /* CHANGED: Was 2.5em */
+            margin-bottom: 0;
+        }
+
+        #clock {
+            text-align: center;
+            font-size: 1.2em; /* CHANGED: Was 1.5em */
+            color: var(--color-text-secondary);
+            margin-bottom: 20px; /* CHANGED: Was 24px */
+        }
+        
+        #dashboard-container {
+            display: grid;
+            /* CHANGED: minmax was 320px, gap was 20px */
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 16px;
+        }
+        
+        .class-card {
+            background-color: var(--color-header-bg);
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+            border: 1px solid var(--color-border);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .class-header {
+            /* CHANGED: Was 16px 20px */
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--color-border);
+        }
+        
+        .class-header h2 {
+            margin: 0;
+            /* CHANGED: Was 1.8em */
+            font-size: 1.5em;
+            color: var(--color-text-primary);
+        }
+        
+        .class-body {
+            /* CHANGED: Was 20px padding, 16px gap */
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            flex-grow: 1;
+        }
+        
+        .event {
+            line-height: 1.4;
+        }
+
+        .event-type {
+            font-weight: bold;
+            font-size: 0.9em;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .event-type.now { color: var(--color-now); }
+        .event-type.next { color: var(--color-next); }
+        .event-type.break { color: var(--color-break); }
+        
+        .event-subject {
+            /* CHANGED: Was 1.4em */
+            font-size: 1.2em;
+            font-weight: 600;
+            margin: 2px 0;
+        }
+        
+        .event-details {
+            /* CHANGED: Was 1em */
+            font-size: 0.9em;
+            color: var(--color-text-secondary);
+        }
+
+        .event-none {
+            /* CHANGED: Was 1.2em */
+            font-size: 1.0em;
+            color: var(--color-text-secondary);
+            flex-grow: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 40px; /* CHANGED: Was 50px */
+        }
+
+    </style>
+</head>
+<body>
+
+    <h1>School Schedule</h1>
+    <div id="clock">Loading...</div>
+    <div id="dashboard-container">
+        </div>
+
+    <script>
+        // --- PASTE YOUR DATA HERE ---
+        // Open your Lessons.txt file, copy ALL the text,
+        // and paste it between the two backticks (` `) below.
+        
+        const tsvData = `PASTE_YOUR_DATA_FROM_LESSONS.TXT_HERE`;
+        
+        // --- END OF DATA ---
+
+
+        /**
+         * Converts a time string (HHMM) to total minutes from midnight.
+         * @param {string} timeStr - e.g., "0900" or "1425"
+         * @returns {number} - e.g., 540 or 865
+         */
+        function timeToMinutes(timeStr) {
+            const hours = parseInt(timeStr.substring(0, 2), 10);
+            const minutes = parseInt(timeStr.substring(2, 4), 10);
+            return (hours * 60) + minutes;
+        }
+
+        /**
+         * Formats total minutes from midnight to a HH:MM string.
+         * @param {number} totalMinutes
+         * @returns {string} - e.g., "09:00" or "14:25"
+         */
+        function minutesToTime(totalMinutes) {
+            const hours = Math.floor(totalMinutes / 60);
+            const minutes = totalMinutes % 60;
+            return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+        }
+
+        /**
+         * Parses the raw TSV data into a usable array of lesson objects.
+         * @param {string} tsv - The raw string data from the file.
+         * @returns {Array<Object>}
+         */
+        function parseLessons(tsv) {
+            const lessons = [];
+            const lines = tsv.trim().split(/[\r\n]+/);
+            
+            if (lines.length < 2) {
+                console.error("No data found or invalid data format.");
+                return [];
+            }
+            
+            const headers = lines[0].split('\t').map(h => h.trim());
+            
+            // Find the column indices we care about
+            const colIdx = {
+                group: headers.indexOf('group'),
+                subject: headers.indexOf('subject'),
+                day: headers.indexOf('day'),
+                starttime: headers.indexOf('starttime'),
+                length: headers.indexOf('length'),
+                room: headers.indexOf('room')
+            };
+
+            // Check if all required columns exist
+            for (const key in colIdx) {
+                if (colIdx[key] === -1) {
+                    console.error(`Error: Required column "${key}" not found in data.`);
+                    alert(`Error: Data file is missing required column "${key}".`);
+                    return [];
+                }
+            }
+
+            for (let i = 1; i < lines.length; i++) {
+                const values = lines[i].split('\t');
+                
+                // Skip rows that aren't complete
+                if (values.length < headers.length) continue;
+
+                const day = values[colIdx.day].trim();
+                const startTimeStr = values[colIdx.starttime].trim().padStart(4, '0');
+                const length = parseInt(values[colIdx.length], 10);
+                
+                // Skip lessons with invalid day, time, or length
+                if (!["Mon", "Tue", "Wed", "Thu", "Fri"].includes(day) || !startTimeStr || length <= 0) {
+                    continue;
+                }
+
+                const startTime = timeToMinutes(startTimeStr);
+                
+                const lesson = {
+                    group: values[colIdx.group].trim(),
+                    subject: values[colIdx.subject].trim(),
+                    day: day,
+                    room: values[colIdx.room].trim(),
+                    startTime: startTime,
+                    endTime: startTime + length,
+                    startTimeStr: minutesToTime(startTime),
+                    endTimeStr: minutesToTime(startTime + length)
+                };
+
+                // Only add lessons that have a class group
+                if (lesson.group) {
+                    // Handle lessons for multiple groups (e.g., "4A,4B")
+                    const groups = lesson.group.split(',');
+                    for (const g of groups) {
+                        const trimmedGroup = g.trim();
+                        if (trimmedGroup) {
+                            lessons.push({ ...lesson, group: trimmedGroup });
+                        }
+                    }
+                }
+            }
+            return lessons;
+        }
+
+        /**
+         * Gets the current "Now" and "Next" lessons for a specific class.
+         * @param {Array<Object>} allLessons - The parsed list of all lessons.
+         * @param {string} className - The class to check (e.g., "4A").
+         * @param {number} nowDay - Current day of week (1=Mon, 2=Tue, ..., 5=Fri).
+         * @param {number} nowMinutes - Current time in minutes from midnight.
+         * @returns {Object} - { now: Object | null, next: Object | null }
+         */
+        function getNowAndNext(allLessons, className, nowDay, nowMinutes) {
+            const dayMap = ["", "Mon", "Tue", "Wed", "Thu", "Fri"];
+            const currentDayStr = dayMap[nowDay];
+
+            if (!currentDayStr) {
+                return { now: null, next: null }; // Weekend
+            }
+
+            // Get all lessons for this class today, sorted by start time
+            const todayLessons = allLessons
+                .filter(l => l.group === className && l.day === currentDayStr)
+                .sort((a, b) => a.startTime - b.startTime);
+
+            let now = null;
+            let next = null;
+
+            for (const lesson of todayLessons) {
+                // Find "Now"
+                if (nowMinutes >= lesson.startTime && nowMinutes < lesson.endTime) {
+                    now = lesson;
+                }
+                // Find first lesson that starts after "Now"
+                if (lesson.startTime > nowMinutes) {
+                    next = lesson;
+                    break; // Found the next lesson, stop searching
+                }
+            }
+
+            // If "Now" was found, "Next" might be the one after it
+            if (now && !next) {
+                const nowIndex = todayLessons.indexOf(now);
+                if (nowIndex < todayLessons.length - 1) {
+                    next = todayLessons[nowIndex + 1];
+                }
+            }
+
+            return { now, next };
+        }
+
+        /**
+         * Creates the HTML for a single lesson event.
+         * @param {Object | null} lesson - The lesson object.
+         * @param {'now' | 'next' | 'break'} type - The type of event.
+         * @returns {string} - The HTML string for the event card.
+         */
+        function createEventHTML(lesson, type) {
+            if (!lesson) {
+                if (type === 'now') {
+                    return `
+                        <div class="event">
+                            <div class="event-type break">Now</div>
+                            <div class="event-subject">Break / Lunch</div>
+                            <div class="event-details">No class scheduled</div>
+                        </div>`;
+                } else {
+                     return `
+                        <div class="event">
+                            <div class="event-type break">Next</div>
+                            <div class="event-subject">End of Day</div>
+                            <div class="event-details">No more classes scheduled</div>
+                        </div>`;
+                }
+            }
+            
+            const location = lesson.room ? `(${lesson.room})` : '';
+            const timeDetails = type === 'now' 
+                ? `Ends at ${lesson.endTimeStr}` 
+                : `Starts at ${lesson.startTimeStr}`;
+
+            return `
+                <div class="event">
+                    <div class="event-type ${type}">${type}</div>
+                    <div class="event-subject">${lesson.subject} ${location}</div>
+                    <div class="event-details">${timeDetails}</div>
+                </div>`;
+        }
+
+        /**
+         * Main function to update the dashboard.
+         */
+        function updateDashboard() {
+            const allLessons = parseLessons(tsvData);
+            if (allLessons.length === 0) {
+                 document.getElementById('dashboard-container').innerHTML = 
+                    "<h2>Error: Could not load lesson data.</h2><p>Please make sure you have pasted the data from Lessons.txt correctly into the `index.html` file.</p>";
+                 document.getElementById('clock').innerHTML = "Error";
+                return;
+            }
+
+            // Get a unique, sorted list of all class groups
+            const classNames = [...new Set(allLessons.map(l => l.group))]
+                .filter(name => /^[4-9][A-Z]$/.test(name)) // Filters for 4A, 4B, 9C etc.
+                .sort();
+            
+            const container = document.getElementById('dashboard-container');
+            container.innerHTML = ''; // Clear existing cards
+            
+            // Get current time
+            // We'll use Europe/Stockholm timezone to be accurate
+            const now = new Date(new Date().toLocaleString("en-US", {timeZone: "Europe/Stockholm"}));
+            const nowDay = now.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+            const nowMinutes = (now.getHours() * 60) + now.getMinutes();
+
+            // Update clock
+            const clockEl = document.getElementById('clock');
+            const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+            clockEl.innerHTML = `${dayNames[nowDay]}, ${minutesToTime(nowMinutes)}`;
+
+            if (nowDay === 0 || nowDay === 6) {
+                container.innerHTML = "<h2>It's the weekend.</h2>";
+                return;
+            }
+
+            // Generate a card for each class
+            for (const className of classNames) {
+                const { now: nowLesson, next: nextLesson } = getNowAndNext(allLessons, className, nowDay, nowMinutes);
+                
+                const card = document.createElement('div');
+                card.className = 'class-card';
+                
+                card.innerHTML = `
+                    <div class="class-header">
+                        <h2>${className}</h2>
+                    </div>
+                    <div class="class-body">
+                        ${createEventHTML(nowLesson, 'now')}
+                        ${createEventHTML(nextLesson, 'next')}
+                    </div>
+                `;
+                container.appendChild(card);
+            }
+        }
+
+        // --- Run the application ---
+        
+        // Run once on load
+        updateDashboard();
+        
+        // Refresh every 30 seconds
+        setInterval(updateDashboard, 30000); 
+
+    </script>
+</body>
+</html>
